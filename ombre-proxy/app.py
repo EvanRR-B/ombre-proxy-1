@@ -52,7 +52,7 @@ def chat_completions():
 
     # 4. 检索记忆
     memory = retrieve_memory(user_msg, token)
-    print(f"检索到的记忆片段: {memory[:100]}...")  # 打印前100个字符
+    print(f"检索到的记忆片段: {memory[:100]}...")
 
     # 5. 构建新的 messages（把记忆插入 system prompt）
     new_messages = []
@@ -76,12 +76,11 @@ def chat_completions():
     print(f"正在使用的 API Key 前缀: {DEEPSEEK_API_KEY[:10]}...")
     print(f"向 DeepSeek 发送 {len(new_messages)} 条消息，包含记忆")
 
-    # 7. 调用 DeepSeek V4 Pro
+    # 7. 调用 DeepSeek V4 Pro（使用官方 BASE URL 的正确地址）
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
-    # 修正：使用官方的模型名称，并添加可能的 V4 标识
     payload = {
         "model": "deepseek-v4-pro",  # 根据官方表格的准确名称
         "messages": new_messages,
@@ -91,9 +90,9 @@ def chat_completions():
     }
     
     try:
-        # 注意：这里使用标准的 v1 端点，模型名称会自动匹配 V4
+        # 【关键修改】使用官方 BASE URL，去掉 /v1
         resp = requests.post(
-            "https://api.deepseek.com/v1/chat/completions",
+            "https://api.deepseek.com/chat/completions",
             json=payload,
             headers=headers,
             timeout=60
