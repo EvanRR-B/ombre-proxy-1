@@ -11,26 +11,23 @@ CORS(app)
 # 从环境变量读取配置
 OMBRE_BRAIN_URL = os.environ.get('OMBRE_BRAIN_URL', 'https://ombre-brain-p6yg.onrender.com')
 DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
-OMBRE_USERNAME = os.environ.get('OMBRE_USERNAME')
-OMBRE_PASSWORD = os.environ.get('OMBRE_PASSWORD')
+OMBRE_TOKEN = os.environ.get('OMBRE_TOKEN')
 
-_token = None
-_token_expire = 0
-
-def get_ombre_token():
-    global _token, _token_expire
-    if _token and time.time() < _token_expire:
-        return _token
+def retrieve_memory(query, token):
+    """调用 /breath 检索记忆，使用 Cookie 认证"""
+    url = f"{OMBRE_BRAIN_URL}/breath"
+    # 关键修改：把 Authorization 改成 Cookie
+    headers = {"Cookie": f"ombre_session={token}"}
     try:
-        resp = requests.post(f"{OMBRE_BRAIN_URL}/api/auth/login", 
-                           json={"username": OMBRE_USERNAME, "password": OMBRE_PASSWORD},
-                           timeout=10)
-        resp.raise_for_status()
-        _token = resp.json().get('token')
-        _token_expire = time.time() + 3600  # 1小时有效期
-        return _token
-    except:
-        return None
+        resp = requests.post(url, json={"query": query}, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get('result', '')
+        else:
+            print(f"检索记忆失败: {resp.status_code} - {resp.text}")
+            return ''
+    except Exception as e:
+        print(f"检索记忆异常: {e}")
+        return ''
 
 @app.route('/v1/chat/completions', methods=['POST'])
 def chat_completions():
@@ -40,41 +37,46 @@ def chat_completions():
         return jsonify({"error": "No messages"}), 400
 
     # 获取用户最后一条消息
-    user_msg = next((msg['content'] for msg in reversed(messages) if msg['role'] == 'user'), None)
+    user_msg = None
+    for msg in reversed(messages):
+        if msg['role'] == 'user':
+            user_msg = msg['content']
+            break
     if not user_msg:
         return jsonify({"error": "No user message"}), 400
 
-    # 获取令牌
-    token = get_ombre_token()
+    # 使用 OMBRE_TOKEN 进行认证
+    token = OMBRE_TOKEN
     if not token:
-        return jsonify({"error": "Auth failed"}), 500
+        return jsonify({"error": "No token provided"}), 500
 
     # 检索记忆
-    memory = ""
-    try:
-        resp = requests.post(f"{OMBRE_BRAIN_URL}/breath", 
-                           json={"query": user_msg},
-                           headers={"Authorization": f"Bearer {token}"},
-                           timeout=10)
-        if resp.status_code == 200:
-            memory = resp.json().get('result', '')
-    except:
-        pass
+    memory = retrieve_memory(user_msg, token)
+    print(f"检索到的记忆: {memory}")
 
-    # 构建带记忆的 system prompt
+    # 构建新的 messages（把记忆插入 system prompt）
     new_messages = []
     has_system = False
     for msg in messages:
         if msg['role'] == 'system':
-            new_messages.append({"role": "system", "content": msg['content'] + (f"\n\n记忆参考:\n{memory}" if memory else "")})
+            new_content = msg['content']
+            if memory:
+                new_content += f"\n\n相关记忆:\n{memory}"
+            new_messages.append({"role": "system", "content": new_content})
             has_system = True
         else:
             new_messages.append(msg)
     if not has_system:
-        new_messages.insert(0, {"role": "system", "content": f"你是智能助手。\n\n记忆参考:\n{memory}" if memory else "你是智能助手。"})
+        system_content = "你是一个智能助手。"
+        if memory:
+            system_content += f"\n\n相关记忆:\n{memory}"
+        new_messages.insert(0, {"role": "system", "content": system_content})
 
-    # 调用 DeepSeek
-    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    # 转发给 DeepSeek
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "model": "deepseek-chat",
         "messages": new_messages,
@@ -87,7 +89,8 @@ def chat_completions():
         resp.raise_for_status()
         return jsonify(resp.json())
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        print(f"DeepSeek API 调用失败: {e}")
+        return jsonify({"error": f"DeepSeek API error: {str(e)}"}), 502
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
