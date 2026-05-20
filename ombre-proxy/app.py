@@ -70,7 +70,7 @@ def chat_completions():
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-pro",
         "messages": new_messages,
         "stream": False,
         "temperature": 1.0,
