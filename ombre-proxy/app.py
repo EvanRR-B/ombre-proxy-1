@@ -13,23 +13,27 @@ def chat_completions():
     # 1. 接收 Chatbox 发来的请求
     data = request.get_json()
     
-    # 2. 直接构造要发给 DeepSeek 的请求
+    # 2. 为了保证能通，强制把模型名字改成最简单的 deepseek-chat
+    if 'model' in data:
+        data['model'] = 'deepseek-chat'
+    
+    # 3. 构造要发给 DeepSeek 的请求
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    # 3. 把 Chatbox 的请求完整转发给 DeepSeek
+    # 4. 把 Chatbox 的请求完整转发给 DeepSeek
     try:
         resp = requests.post(
-            "https://api.deepseek.com/chat/completions",  # 使用官方 BASE URL
-            json=data,  # 直接把 Chatbox 的请求转发过去
+            "https://api.deepseek.com/chat/completions",
+            json=data,
             headers=headers,
             timeout=60
         )
         resp.raise_for_status()
         
-        # 4. 把 DeepSeek 的回复直接返回给 Chatbox
+        # 5. 把 DeepSeek 的回复直接返回给 Chatbox
         return jsonify(resp.json())
         
     except Exception as e:
