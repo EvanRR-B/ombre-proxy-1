@@ -50,7 +50,7 @@ def chat_completions():
     if not token:
         return jsonify({"error": "No token provided"}), 500
 
-    # 4. 检索记忆
+    # 4. 检索记忆（注意：这里可能会失败，但不影响 DeepSeek 调用）
     memory = retrieve_memory(user_msg, token)
     print(f"检索到的记忆片段: {memory[:100]}...")
 
@@ -72,6 +72,11 @@ def chat_completions():
             system_content += f"\n\n【相关记忆】:\n{memory}"
         new_messages.insert(0, {"role": "system", "content": system_content})
 
+    # 【关键修改】在用户消息后面，强制加上一个“引导词”
+    # 这样 DeepSeek 就一定会回复一段有内容的文字，而不会返回空白
+    if len(new_messages) > 0 and new_messages[-1]['role'] == 'user':
+        new_messages[-1]['content'] += "\n\n（请务必在回复的开头加上“你好，我是来自未来的智能助理：”这句话，然后再回答我的问题。）"
+
     # 6. 打印调试信息
     print(f"正在使用的 API Key 前缀: {DEEPSEEK_API_KEY[:10]}...")
     print(f"向 DeepSeek 发送 {len(new_messages)} 条消息，包含记忆")
@@ -82,7 +87,7 @@ def chat_completions():
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "deepseek-v4-pro",  # 根据官方表格的准确名称
+        "model": "deepseek-v4-pro",
         "messages": new_messages,
         "stream": False,
         "temperature": 1.0,
@@ -90,7 +95,6 @@ def chat_completions():
     }
     
     try:
-        # 【关键修改】使用官方 BASE URL，去掉 /v1
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             json=payload,
@@ -99,17 +103,14 @@ def chat_completions():
         )
         resp.raise_for_status()
         
-        # 打印响应摘要，便于排查
         response_json = resp.json()
         if 'choices' in response_json and len(response_json['choices']) > 0:
             content = response_json['choices'][0].get('message', {}).get('content', '')
             print(f"DeepSeek 回复长度: {len(content)} 字符")
-            if len(content) < 10:
-                print(f"⚠️ 警告：回复内容过短: {content}")
+            print(f"DeepSeek 回复内容预览: {content[:50]}...")
         else:
             print("⚠️ 警告：DeepSeek 返回了没有 choices 的响应")
         
-        # 直接返回原始 JSON
         return jsonify(response_json)
         
     except Exception as e:
